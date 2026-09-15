@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>달에 의한 기조력: 무게중심과 지구 원운동 모델</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Noto Sans KR","Malgun Gothic",sans-serif;background:#0f172a;color:#f8fafc}
+  .wrap{max-width:1200px;margin:0 auto;padding:20px}
+  h1{margin:0 0 8px;font-size:26px;color:#f1f5f9}
+  .sub{margin:0 0 16px;color:#94a3b8;font-size:15px;line-height:1.5}
+  .panel{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:16px;box-shadow:0 10px 25px rgba(0,0,0,0.3)}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  button{border:1px solid #475569;background:#334155;color:#fff;border-radius:10px;padding:9px 13px;font-weight:700;font-size:13.5px;cursor:pointer;transition:all 0.2s}
+  button.active{background:#2563eb;color:#fff;border-color:#3b82f6}
+  button:hover{background:#475569}
+  button.active:hover{background:#1d4ed8}
+  .demo-btn{background:#7c3aed;border-color:#8b5cf6}
+  .demo-btn:hover{background:#6d28d9}
+  .demo-btn.active{background:#8b5cf6;border-color:#c084fc}
+  .action-btn{background:#d97706;border-color:#f59e0b}
+  .action-btn:hover{background:#b45309}
+  .speed-wrap{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:14px;color:#cbd5e1}
+  input[type=range]{cursor:pointer}
+  .stage{position:relative;background:#090d16;border-radius:14px;overflow:hidden;border:1px solid #1e293b}
+  canvas{display:block;width:100%;height:auto}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:14px;padding:12px 6px 4px;color:#cbd5e1;font-weight:600}
+  .dot{display:inline-block;width:13px;height:13px;border-radius:50%;vertical-align:-1px;margin-right:6px}
+  .note{margin-top:14px;padding:16px;border-radius:12px;background:#0f172a;border-left:5px solid #3b82f6;font-size:15px;line-height:1.7;color:#e2e8f0}
+  .note b{color:#60a5fa}
+  .highlight{color:#facc15;font-weight:bold}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>지구-달 동기 공전과 기조력 원리</h1>
+  <p class="sub">
+    실제 <b>지구-달 공통 무게중심</b>은 지구 내부(지표면 아래)에 위치합니다.<br>
+    지구 표면 모든 지점이 동일한 크기의 원 궤도를 그리며 회전하므로 <b>원심력은 달 반대 방향(&larr;)으로 항상 일정</b>합니다.
+  </p>
+
+  <div class="panel">
+    <div class="controls">
+      <button id="orbitBtn">① 무게중심 & 공전</button>
+      <button id="gravBtn">② 만유인력 vs 원심력</button>
+      <button id="tideBtn">③ 기조력 (합성 벡터)</button>
+      <button id="demoBtn" class="demo-btn active">④ 달 고정 & 지구 원운동 관찰 🔍</button>
+      
+      <span style="border-left:1px solid #475569; height:24px; margin:0 2px;"></span>
+
+      <button id="playPauseBtn" class="action-btn">❚❚ 일시정지</button>
+      <button id="toggleCircleBtn">궤도 원 숨기기</button>
+
+      <div class="speed-wrap">
+        <label for="speedRange">속도:</label>
+        <input type="range" id="speedRange" min="0.2" max="2.5" step="0.1" value="1">
+      </div>
+    </div>
+
+    <div class="stage">
+      <canvas id="cv" width="1120" height="620"></canvas>
+    </div>
+
+    <div class="legend">
+      <span><i class="dot" style="background:#facc15"></i>★ 지구 내부 공통 무게중심</span>
+      <span><i class="dot" style="background:#f59e0b"></i>원심력 (달 반대 방향)</span>
+      <span><i class="dot" style="background:#10b981"></i>달의 만유인력 (달 방향)</span>
+      <span><i class="dot" style="background:#ef4444"></i>기조력 (두 힘의 벡터합)</span>
+      <span><i class="dot" style="background:#06b6d4"></i>해수면 융기(만조)</span>
+    </div>
+
+    <div id="message" class="note">
+      <b>④ 달 고정 & 지구 원운동 관찰</b>: 달을 오른쪽에 고정하고 지구의 회전만 관찰합니다. 지구 중심뿐만 아니라 <b>모든 표면 지점이 동일한 반지름의 원(주황색 점선)을 동시에 그림</b>을 볼 수 있습니다. 이 때문에 원심력(주황색 화살표)은 지구 모든 곳에서 <b>달 반대편(&larr;)으로 동일하게 작용</b>합니다.
+    </div>
+  </div>
+</div>
+
+<script>
+const c = document.getElementById("cv"), ctx = c.getContext("2d");
+const W = c.width, H = c.height;
+
+let mode = 4; // 기본 4번 모드(달 고정 & 지구 원운동)로 시작
+let isPlaying = true;
+let showOrbitCircles = true;
+let speed = 1.0;
+let t = 0;
+
+const OrbitConfig = {
+  baryX: 540,        // 무게중심 위치
+  baryY: 310,
+  earthOrbitR: 50,   // 지구가 무게중심 둘레를 도는 반지름
+  moonOrbitR: 260,   // 달이 무게중심 둘레를 도는 반지름
+  earthR: 85,        // 지구 반지름
+  moonR: 35          // 달 반지름
+};
+
+// 상대적 지점 정의 (0도 = 달 방향 기준)
+const relativePoints = [
+  { name: "B", relAng: 0 },
+  { name: "1", relAng: -Math.PI / 4 },
+  { name: "4", relAng: -3 * Math.PI / 4 },
+  { name: "A", relAng: Math.PI },
+  { name: "3", relAng: 3 * Math.PI / 4 },
+  { name: "2", relAng: Math.PI / 4 },
+  { name: "중심", isCenter: true }
+];
+
+function arrow(x1, y1, x2, y2, color, width = 4) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = width; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  const s = 7 + width;
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - s * Math.cos(a - Math.PI / 6), y2 - s * Math.sin(a - Math.PI / 6));
+  ctx.lineTo(x2 - s * Math.cos(a + Math.PI / 6), y2 - s * Math.sin(a + Math.PI / 6));
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function text(x, y, s, size = 15, color = "#fff", align = "center", bold = false) {
+  ctx.save(); ctx.fillStyle = color;
+  ctx.font = (bold ? "700 " : "") + size + "px 'Noto Sans KR', sans-serif";
+  ctx.textAlign = align; ctx.textBaseline = "middle";
+  ctx.fillText(s, x, y); ctx.restore();
+}
+
+function circle(x, y, r, fill, stroke = null, lw = 1) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+}
+
+function dashedCircle(x, y, r, stroke, lw = 1.8) {
+  ctx.save(); ctx.setLineDash([5, 5]);
+  ctx.strokeStyle = stroke; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
+function dashedLine(x1, y1, x2, y2, stroke, lw = 1.5) {
+  ctx.save(); ctx.setLineDash([6, 6]);
+  ctx.strokeStyle = stroke; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.restore();
+}
+
+// 무게중심 항상 전면에 표시
+function drawBarycenterOnTop() {
+  ctx.save();
+  circle(OrbitConfig.baryX, OrbitConfig.baryY, 14, "rgba(250, 204, 21, 0.4)");
+  
+  ctx.strokeStyle = "#facc15"; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(OrbitConfig.baryX - 16, OrbitConfig.baryY); ctx.lineTo(OrbitConfig.baryX + 16, OrbitConfig.baryY);
+  ctx.moveTo(OrbitConfig.baryX, OrbitConfig.baryY - 16); ctx.lineTo(OrbitConfig.baryX, OrbitConfig.baryY + 16);
+  ctx.stroke();
+
+  circle(OrbitConfig.baryX, OrbitConfig.baryY, 6, "#facc15", "#ffffff", 2);
+  text(OrbitConfig.baryX, OrbitConfig.baryY - 26, "★ 공통 무게중심", 13, "#facc15", "center", true);
+  ctx.restore();
+}
+
+function drawMoon(mx, my) {
+  circle(mx, my, OrbitConfig.moonR, "#d7dde8", "#94a3b8", 2);
+  for (let i = 0; i < 6; i++) {
+    let a = i * 2.2, rr = 8 + (i % 3) * 5;
+    circle(mx + Math.cos(a) * rr, my + Math.sin(a) * rr, 3 + (i % 2) * 2, "#cbd5e1");
+  }
+  text(mx, my + 50, "달", 16, "#fff", "center", true);
+}
+
+function drawEarthBody(cx, cy) {
+  circle(cx, cy, OrbitConfig.earthR, "#2563eb", "#60a5fa", 3);
+  
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = "#10b981";
+  ctx.beginPath(); ctx.ellipse(-25, -25, 20, 12, -0.4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(20, 18, 22, 12, 0.4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(3, -6, 12, 7, 1, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  // 우주 배경
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#090d16"); g.addColorStop(1, "#111827");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  for (let i = 0; i < 40; i++) {
+    circle((i * 97) % W, (i * 57) % H, 1, "rgba(255,255,255,0.25)");
+  }
+
+  // mode 4(달 고정) 인 경우 달 각도는 0으로 고정, 지구만 회전
+  const moonAngle = (mode === 4) ? 0 : t;
+  const moonX = OrbitConfig.baryX + OrbitConfig.moonOrbitR * Math.cos(moonAngle);
+  const moonY = OrbitConfig.baryY + OrbitConfig.moonOrbitR * Math.sin(moonAngle);
+
+  // 지구 공전 위치 (mode 4에서는 t에 따라 지구만 원운동)
+  const earthRevAngle = t;
+  const currentEarthX = OrbitConfig.baryX - OrbitConfig.earthOrbitR * Math.cos(earthRevAngle);
+  const currentEarthY = OrbitConfig.baryY - OrbitConfig.earthOrbitR * Math.sin(earthRevAngle);
+
+  // 1. 공전 궤도 축선 및 기본 궤도원
+  dashedLine(currentEarthX, currentEarthY, moonX, moonY, "rgba(255, 255, 255, 0.25)", 1.5);
+  if (mode !== 4) {
+    dashedCircle(OrbitConfig.baryX, OrbitConfig.baryY, OrbitConfig.moonOrbitR, "rgba(255, 255, 255, 0.1)", 1);
+  }
+  dashedCircle(OrbitConfig.baryX, OrbitConfig.baryY, OrbitConfig.earthOrbitR, "rgba(250, 204, 21, 0.6)", 2);
+
+  // 2. 달 그리기
+  drawMoon(moonX, moonY);
+
+  // 3. 지구 관측 지점 계산 (병진 운동: 회전하지 않고 형태 유지)
+  const earthToMoonAngle = Math.atan2(moonY - currentEarthY, moonX - currentEarthX);
+  
+  // mode 4에서는 달이 우측에 고정되므로 좌표 기준을 수평으로 유지
+  const refAngle = (mode === 4) ? 0 : earthToMoonAngle;
+
+  const calculatedPoints = relativePoints.map(p => {
+    let absAng = refAngle + p.relAng;
+    let relX = 0, relY = 0;
+    if (!p.isCenter) {
+      relX = OrbitConfig.earthR * Math.cos(absAng);
+      relY = OrbitConfig.earthR * Math.sin(absAng);
+    }
+    const px = currentEarthX + relX;
+    const py = currentEarthY + relY;
+
+    // 각 지점의 원운동 중심점
+    const centerOfPointOrbitX = OrbitConfig.baryX + relX;
+    const centerOfPointOrbitY = OrbitConfig.baryY + relY;
+
+    return { ...p, px, py, centerOfPointOrbitX, centerOfPointOrbitY };
+  });
+
+  // 궤도 원선 표시 (모든 지점의 동일한 원 궤도 강조)
+  if (showOrbitCircles) {
+    calculatedPoints.forEach(pt => {
+      dashedCircle(pt.centerOfPointOrbitX, pt.centerOfPointOrbitY, OrbitConfig.earthOrbitR, (mode === 4) ? "rgba(245, 158, 11, 0.5)" : "rgba(245, 158, 11, 0.25)", (mode === 4) ? 1.6 : 1.2);
+    });
+  }
+
+  // 4. 지구 본체
+  drawEarthBody(currentEarthX, currentEarthY);
+
+  // 5. 해수면 융기 (Mode 3 타원 마스크)
+  if (mode === 3) {
+    ctx.save();
+    ctx.translate(currentEarthX, currentEarthY);
+    ctx.rotate(earthToMoonAngle);
+    ctx.beginPath();
+    for (let a = 0; a <= Math.PI * 2 + 0.05; a += 0.03) {
+      const bulge = OrbitConfig.earthR + 22 * Math.cos(2 * a);
+      const x = bulge * Math.cos(a);
+      const y = (bulge - 6) * Math.sin(a);
+      if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(6, 182, 212, 0.35)"; ctx.fill();
+    ctx.strokeStyle = "#06b6d4"; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.restore();
+  }
+
+  // 6. 무게중심 전면 레이어
+  drawBarycenterOnTop();
+
+  // 7. 힘 벡터 계산 및 그리기
+  const dxCenter = moonX - currentEarthX;
+  const dyCenter = moonY - currentEarthY;
+  const distCenter = Math.hypot(dxCenter, dyCenter);
+  const baseMag = 55;
+
+  // 원심력: 항상 달의 반대 방향 (<-)
+  const centVecX = -(dxCenter / distCenter) * baseMag;
+  const centVecY = -(dyCenter / distCenter) * baseMag;
+
+  calculatedPoints.forEach(pt => {
+    circle(pt.px, pt.py, 4.5, "#fff");
+
+    // 달의 만유인력
+    const dx = moonX - pt.px;
+    const dy = moonY - pt.py;
+    const dist = Math.hypot(dx, dy);
+
+    const gravMag = baseMag * Math.pow(distCenter / dist, 2);
+    const gravVecX = (dx / dist) * gravMag;
+    const gravVecY = (dy / dist) * gravMag;
+
+    // Mode 1 및 Mode 4: 원심력 (주황색)
+    if (mode === 1 || mode === 2 || mode === 4) {
+      arrow(pt.px, pt.py, pt.px + centVecX, pt.py + centVecY, "#f59e0b", 3.5);
+    }
+
+    // Mode 2: 만유인력 (초록색)
+    if (mode === 2) {
+      arrow(pt.px, pt.py, pt.px + gravVecX, pt.py + gravVecY, "#10b981", 3.5);
+    }
+
+    // Mode 3: 기조력 (합성 벡터)
+    if (mode === 3) {
+      const tideX = gravVecX + centVecX;
+      const tideY = gravVecY + centVecY;
+
+      arrow(pt.px, pt.py, pt.px + centVecX, pt.py + centVecY, "rgba(245, 158, 11, 0.35)", 2);
+      arrow(pt.px, pt.py, pt.px + gravVecX, pt.py + gravVecY, "rgba(16, 185, 129, 0.35)", 2);
+
+      if (Math.hypot(tideX, tideY) > 1.2) {
+        arrow(pt.px, pt.py, pt.px + tideX * 1.7, pt.py + tideY * 1.7, "#ef4444", 4.5);
+      }
+    }
+
+    text(pt.px, pt.py - 15, pt.name, 13, "#fff", "center", true);
+  });
+
+  if (isPlaying) {
+    t += 0.008 * speed;
+  }
+
+  requestAnimationFrame(render);
+}
+
+document.getElementById("orbitBtn").onclick = function() {
+  mode = 1; updateButtons(this);
+  document.getElementById("message").innerHTML = "<b>① 무게중심 & 공전</b>: 지구 내부의 <span class='highlight'>★ 공통 무게중심</span>을 축으로 지구가 회전합니다. 원심력(주황색)은 모든 지점에서 <b>달의 반대 방향</b>으로 일정합니다.";
+};
+
+document.getElementById("gravBtn").onclick = function() {
+  mode = 2; updateButtons(this);
+  document.getElementById("message").innerHTML = "<b>② 만유인력 vs 원심력</b>: 달이 공전함에 따라 만유인력(초록색) 방향도 함께 회전하며, 달 쪽(B)이 달 반대편(A)보다 강합니다.";
+};
+
+document.getElementById("tideBtn").onclick = function() {
+  mode = 3; updateButtons(this);
+  document.getElementById("message").innerHTML = "<b>③ 기조력 (합성 벡터)</b>: 회전하는 지구-달 축을 따라 달쪽(B)과 달 반대쪽(A) 양쪽으로 <b>알짜 기조력(빨간색)</b>이 부풀어 오릅니다.";
+};
+
+document.getElementById("demoBtn").onclick = function() {
+  mode = 4; updateButtons(this);
+  document.getElementById("message").innerHTML = "<b>④ 달 고정 & 지구 원운동 관찰</b>: 달을 오른쪽에 고정하고 지구의 회전만 관찰합니다. 지구 중심뿐만 아니라 <b>모든 표면 지점이 동일한 반지름의 원(주황색 점선)을 동시에 그림</b>을 볼 수 있습니다. 이 때문에 원심력(주황색 화살표)은 지구 모든 곳에서 <b>달 반대편(&larr;)으로 동일하게 작용</b>합니다.";
+};
+
+function updateButtons(btn) {
+  document.querySelectorAll(".controls button").forEach(b => {
+    if (b.id !== "playPauseBtn" && b.id !== "toggleCircleBtn") b.classList.remove("active");
+  });
+  btn.classList.add("active");
+}
+
+const playPauseBtn = document.getElementById("playPauseBtn");
+playPauseBtn.onclick = function() {
+  isPlaying = !isPlaying;
+  this.innerText = isPlaying ? "❚❚ 일시정지" : "▶ 재생";
+  this.style.background = isPlaying ? "#d97706" : "#059669";
+};
+
+const toggleCircleBtn = document.getElementById("toggleCircleBtn");
+toggleCircleBtn.onclick = function() {
+  showOrbitCircles = !showOrbitCircles;
+  this.innerText = showOrbitCircles ? "궤도 원 숨기기" : "궤도 원 보기";
+};
+
+document.getElementById("speedRange").oninput = function() {
+  speed = parseFloat(this.value);
+};
+
+render();
+</script>
+</body>
+</html>
